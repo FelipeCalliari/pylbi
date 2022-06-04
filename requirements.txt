@@ -1,4 +1,6 @@
-numba
-numpy
-scipy
-pyqtgraph
+numba>=0.55
+numpy>=1.20
+scipy>=1.7
+matplotlib>=3.4
+pyqtgraph>=0.10
+pyqt5

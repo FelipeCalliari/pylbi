@@ -5,20 +5,29 @@ import sys
 import time
 import random
 
-import pyqtgraph as pg
-import pyqtgraph.exporters
 import numpy as np
 
 from numba import jit
 
 
-def printNonZero(beta):
-    for i, j in enumerate(beta):
-        if j != 0.0:
-            print(f"{i:8d}  -->  {j:0.8f}")
+def printNonZero(beta1, beta2 = None):
+    beta1 = np.array(beta1, dtype=np.float64)
+    if beta2 is None:
+        print("\n{:>8s}  -->  {:>15s}".format("INDEX", "VARIABLE 1"))
+        for i in range(beta1.size):
+            if beta1[i] != 0.0:
+                print(f"{i:8d}  -->  {beta1[i]: 15.10f}")
+    else:
+        beta2 = np.array(beta2, dtype=np.float64)
+        if beta1.size == beta2.size:
+            print("\n{:>8s}  -->  {:>15s}   {:>15s}".format("INDEX", "VARIABLE 1", "VARIABLE 2"))
+            for i in range(beta1.size):
+                if (beta1[i] != 0.0) or (beta2[i] != 0.0):
+                    print(f"{i:8d}  -->  {beta1[i]: 15.10f}   {beta2[i]: 15.10f}")
+    print("")
 
 
-def my_time_report(func):
+def time_report(func):
     def wrapper(*arg, **kw):
         t1 = time.perf_counter()
         res = func(*arg, **kw)
@@ -28,7 +37,7 @@ def my_time_report(func):
     return wrapper
 
 
-def my_time(func):
+def time_wrapper(func):
     def wrapper(*arg, **kw):
         t1 = time.perf_counter()
         res = func(*arg, **kw)
@@ -37,7 +46,7 @@ def my_time(func):
     return wrapper
 
 
-@my_time
+@time_report
 def read_file(filename):
     with open(filename) as f:
         d = f.read().split("\n")
@@ -76,10 +85,11 @@ def CalcYFromWP1(beta):
     return y
 
 
-def GenerateFiberProfileP1(N, F):
+def GenerateFiberProfileP1(N, F, addNoise = True):
     # Create a Fiber Profile with:
     #   N: length of the profile
     #   F: number of faults
+    #   addNoise: True or False
     #   SRNdB: the CRN is calculated by Equation 9. [ref]
 
     # Sort fault's position
@@ -113,28 +123,29 @@ def GenerateFiberProfileP1(N, F):
     # LinearY is the number of counts for each position.
     linearY = np.power(10.0, (Y/10.0))
 
-    # PoissonNoise is the counting noise for each position
-    PoissonNoise = np.sqrt(linearY)
+    if addNoise:
+        # PoissonNoise is the counting noise for each position
+        PoissonNoise = np.sqrt(linearY)
 
-    # This is an approximation! Adds AWGN with variance equal to the
-    # variance of the counting noise to each position.
-    for j in range(N):
-        linearY[j] = awgn_CRN(linearY[j], PoissonNoise[j])
+        # This is an approximation! Adds AWGN with variance equal to the
+        # variance of the counting noise to each position.
+        for j in range(N):
+            linearY[j] = awgn_CRN(linearY[j], PoissonNoise[j])
 
-    # Adds white gaussian noise relative to the Coherent Rayleigh Noise.
-    # Variance of the CRN noise as presented in Equation 9 of the manuscript
-    DeltaNu1 = 100*1e9 # 100 GHz = 0.8 nm -- full DWDM channel occupied
-    DeltaNu2 = 6*1e6   # 6 MHz -- linewidth of a bad DFB single-mode laser
-    DeltaNu3 = 10*1e3  # 10 kHz -- linewidth of a descent external cavity single-mode laser
-    sigmaCRN = np.sqrt( 2e8 / (4 * N * DeltaNu3) )
-    # In the experimental measurements, we used a tunable external cavity single-mode laser.
-    # Therefore, in order to truly simulate the experimental conditions,
-    # we use DeltaNu3 in the generation script. This information has been included into the manuscript text.
-    linearY = awgn_CRN(linearY, sigmaCRN)
+        # Adds white gaussian noise relative to the Coherent Rayleigh Noise.
+        # Variance of the CRN noise as presented in Equation 9 of the manuscript
+        DeltaNu1 = 100*1e9 # 100 GHz = 0.8 nm -- full DWDM channel occupied
+        DeltaNu2 = 6*1e6   # 6 MHz -- linewidth of a bad DFB single-mode laser
+        DeltaNu3 = 10*1e3  # 10 kHz -- linewidth of a descent external cavity single-mode laser
+        sigmaCRN = np.sqrt( 2e8 / (4 * N * DeltaNu3) )
+        # In the experimental measurements, we used a tunable external cavity single-mode laser.
+        # Therefore, in order to truly simulate the experimental conditions,
+        # we use DeltaNu3 in the generation script. This information has been included into the manuscript text.
+        linearY = awgn_CRN(linearY, sigmaCRN)
 
-    # Avoiding problems when returning to the logarithmic scale.
-    # Remove any negative values, if any...
-    linearY = np.where(linearY < 0, 0, linearY)
+        # Avoiding problems when returning to the logarithmic scale.
+        # Remove any negative values, if any...
+        linearY = np.where(linearY < 0, 0, linearY)
 
     # Return to logarithmic scale.
     Y = 10 * np.log10(linearY)
@@ -250,6 +261,13 @@ def BatchGenerateFiberProfileP1(path, numberOfProfiles, profileLength, numberOfF
         fn_y = AppendNtoFilename(prefix, "y", fileN, N_pad, ext, filename_PrePost)
 
     if plotGraph:
+        try:
+            import pyqtgraph as pg
+            import pyqtgraph.exporters
+        except:
+            plotGraph = False
+
+    if plotGraph:
         app = 0
         app = pg.QtGui.QApplication([])
         win = pg.GraphicsWindow()
@@ -325,6 +343,13 @@ def BatchGenerateFiberProfileNoSlope(path, numberOfProfiles, profileLength, numb
 
         np.savetxt(os.path.join(path, fn_y),    y,    "%0.20f")
         np.savetxt(os.path.join(path, fn_beta), beta, "%0.20f")
+
+        if plotGraph:
+            try:
+                import pyqtgraph as pg
+                import pyqtgraph.exporters
+            except:
+                plotGraph = False
 
         if plotGraph:
             plot.clear()
